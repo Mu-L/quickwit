@@ -106,20 +106,20 @@ fn split_id_from_split_folder(dir_path: &Path) -> Option<&str> {
     dir_path.file_name()?.to_str()?.strip_suffix(".split")
 }
 
-/// The `IndexingSplitCache` is a local cache used to improve the performance of indexing nodes.
-/// Its purpose is simple: when a new split is freshly created, it is usely merged
+/// The [`IndexingSplitCache`] is a local cache used to improve the performance of indexing nodes.
+/// Its purpose is simple: when a new split is freshly created, it is usually merged
 /// very rapidly after.
 ///
-/// In order to prevent this merge to force its download, we store it in the
-/// `IndexingSplitCache`. This store is just a cache: a cache miss is acceptable and
-/// just means that the split will be redownloaded.
+/// In order to prevent this merge from forcing its download, we store it in the
+/// [`IndexingSplitCache`]. This store is just a cache: a cache miss is acceptable and
+/// just means that the split will be downloaded again.
 ///
 /// The indexing split cache eviction policy however, is rather uncommon.
 /// On our happy path, a split is stored into the cache, and is then used only once
 /// to undergo a merge.
 ///
 /// For this reason, we simply offer a way to `move splits into the cache`,
-/// and `move splits out of the cache`. A split is removed from the split store
+/// and `move splits out of the cache`. A split is removed from the split cache
 /// after its first access.
 ///
 /// Of course a failed merge could require accessing a given split more than once. In that
@@ -137,7 +137,6 @@ fn split_id_from_split_folder(dir_path: &Path) -> Option<&str> {
 /// When adding a new split into the cache, if adding the split would break one of the following
 /// limit, we simply remove split one by one starting by the oldest first, until the split
 /// can be added.
-
 pub struct IndexingSplitCache {
     inner: Mutex<InnerSplitCache>,
 }
@@ -153,9 +152,9 @@ struct SplitFolderRegistry {
     /// Splits ids are generated using ULID, so that they are sorted
     /// according to their creation date.
     ///
-    /// We evict the oldest split first. (Note this is not an LRU strategy
+    /// We evict the oldest split first. Note this is not an LRU strategy
     /// because we do not care about the last access time, but we only
-    /// consider the creation time.)
+    /// consider the creation time.
     split_folders: BTreeMap<Ulid, ByteSize>,
     /// The split store quota shared among all indexing split stores.
     split_store_quota: SplitStoreQuota,
@@ -187,8 +186,9 @@ impl SplitFolderRegistry {
             .insert(split_folder.split_id, split_folder.num_bytes)
         {
             assert_eq!(previous, split_folder.num_bytes);
+        } else {
+            self.split_store_quota.add_split(split_folder.num_bytes);
         }
-        self.split_store_quota.add_split(split_folder.num_bytes);
     }
 
     /// Returns true if the split was indeed present in the registry
@@ -254,7 +254,7 @@ impl InnerSplitCache {
                 error!(from_path=%from_path.display(), to_full_path=%to_full_path.display(), error=%io_err, "failed to move split directory out of cache");
                 // Let's attempt to repair consistency of our indexing split cache
                 // by removing the now dangling split directory.
-                if let Err(io_err) = tokio::fs::remove_dir(&from_path).await {
+                if let Err(io_err) = tokio::fs::remove_dir_all(&from_path).await {
                     error!(from_path=%from_path.display(), to_full_path=%to_full_path.display(), error=%io_err, "failed to remove dangling split directory from local split cache");
                 }
             }
